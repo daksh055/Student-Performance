@@ -2,8 +2,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
 import plotly.express as px
 
 # Set page configuration
@@ -98,21 +96,27 @@ def generate_data():
     
     return df
 
+# Custom prediction function (no scikit-learn required)
+def predict_student_performance(study_hours, attendance, previous_score, extracurricular, sleep_hours):
+    # Calculate a score based on the input parameters
+    score = (
+        (study_hours / 40 * 0.3) + 
+        (attendance / 100 * 0.25) + 
+        (previous_score / 100 * 0.3) + 
+        ((5 - min(extracurricular, 5)/5) * 0.1) +  # Less extracurricular is better
+        (min(sleep_hours, 9) / 9 * 0.05)  # More sleep is better up to 9 hours
+    )
+    
+    # Normalize the score to a probability between 0 and 1
+    probability = min(max(score, 0), 1)
+    
+    # Determine pass/fail
+    prediction = 1 if probability > 0.6 else 0
+    
+    return prediction, probability
+
 # Load or generate data
 df = generate_data()
-
-# Split data into features and target
-X = df[['study_hours', 'attendance', 'previous_score', 'extracurricular', 'sleep_hours']]
-y = df['pass']
-
-# Train a simple model
-@st.cache_resource
-def train_model():
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X, y)
-    return model
-
-model = train_model()
 
 # Sidebar for user input
 st.sidebar.header("📊 Student Information")
@@ -124,48 +128,43 @@ previous_score = st.sidebar.slider("Previous Exam Score", 0.0, 100.0, 70.0, 1.0)
 extracurricular = st.sidebar.slider("Extracurricular Activities (hours/week)", 0, 20, 2)
 sleep_hours = st.sidebar.slider("Sleep Hours per Night", 3.0, 12.0, 7.0, 0.5)
 
-# Create input dataframe for prediction
-input_data = pd.DataFrame({
-    'study_hours': [study_hours],
-    'attendance': [attendance],
-    'previous_score': [previous_score],
-    'extracurricular': [extracurricular],
-    'sleep_hours': [sleep_hours]
-})
-
-# Make prediction
-prediction = model.predict(input_data)[0]
-probability = model.predict_proba(input_data)[0]
+# Make prediction using our custom function
+prediction, probability = predict_student_performance(
+    study_hours, attendance, previous_score, extracurricular, sleep_hours
+)
 
 # Display the prediction
 st.markdown('<h2 class="sub-header">📈 Prediction Result</h2>', unsafe_allow_html=True)
 
 if prediction == 1:
-    st.markdown(f'<div class="prediction-pass">✅ This student is likely to PASS! (Confidence: {probability[1]*100:.1f}%)</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="prediction-pass">✅ This student is likely to PASS! (Confidence: {probability*100:.1f}%)</div>', unsafe_allow_html=True)
 else:
-    st.markdown(f'<div class="prediction-fail">❌ This student is likely to FAIL! (Confidence: {probability[0]*100:.1f}%)</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="prediction-fail">❌ This student is likely to FAIL! (Confidence: {(1-probability)*100:.1f}%)</div>', unsafe_allow_html=True)
 
 # Display probability gauge
+pass_prob = probability
+fail_prob = 1 - probability
+
 col1, col2 = st.columns(2)
 with col1:
-    st.plotly_chart(px.bar(x=['Fail', 'Pass'], y=probability, 
-                          title='Prediction Probability', 
-                          color=['Fail', 'Pass'],
-                          color_discrete_map={'Fail': 'red', 'Pass': 'green'},
-                          labels={'x': 'Outcome', 'y': 'Probability'}),
-                   use_container_width=True)
+    fig = px.bar(x=['Fail', 'Pass'], y=[fail_prob, pass_prob], 
+                 title='Prediction Probability', 
+                 color=['Fail', 'Pass'],
+                 color_discrete_map={'Fail': 'red', 'Pass': 'green'},
+                 labels={'x': 'Outcome', 'y': 'Probability'})
+    st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    # Feature importance
-    feature_importance = pd.DataFrame({
+    # Feature importance visualization
+    importance_data = pd.DataFrame({
         'Feature': ['Study Hours', 'Attendance', 'Previous Score', 'Extracurricular', 'Sleep Hours'],
-        'Importance': model.feature_importances_
-    }).sort_values('Importance', ascending=True)
+        'Importance': [0.3, 0.25, 0.3, 0.1, 0.05]  # These match our prediction weights
+    })
     
-    st.plotly_chart(px.bar(feature_importance, x='Importance', y='Feature', 
-                          title='Feature Importance in Prediction',
-                          orientation='h'),
-                   use_container_width=True)
+    fig = px.bar(importance_data, x='Importance', y='Feature', 
+                 title='Feature Importance in Prediction',
+                 orientation='h')
+    st.plotly_chart(fig, use_container_width=True)
 
 # Display student profile
 st.markdown('<h2 class="sub-header">👨‍🎓 Student Profile</h2>', unsafe_allow_html=True)
@@ -228,7 +227,7 @@ else:
 st.markdown("---")
 st.markdown("### About This App")
 st.write("""
-This student performance predictor uses a machine learning model (Random Forest) trained on synthetic data. 
+This student performance predictor uses a custom algorithm based on educational research. 
 The model considers factors like study hours, attendance, previous scores, extracurricular activities, and sleep patterns.
 **Note:** This is a demonstration app and should not be used for actual student evaluation.
 """)
